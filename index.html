@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>Atari Tennis</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: #000;
+    color: #fff;
+    font-family: "Courier New", monospace;
+    overflow: hidden;
+  }
+  #wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+  }
+  canvas {
+    background: #000;
+    border: 4px solid #fff;
+    image-rendering: pixelated;
+    box-shadow: 0 0 30px rgba(255,255,255,0.15);
+  }
+  #info {
+    margin-top: 12px;
+    font-size: 14px;
+    letter-spacing: 2px;
+    text-align: center;
+    color: #bbb;
+  }
+  #info b { color: #fff; }
+</style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game" width="800" height="500"></canvas>
+    <div id="info">
+      GIOCATORE 1: <b>W / S</b> &nbsp; &middot; &nbsp; GIOCATORE 2: <b>&uarr; / &darr;</b><br>
+      <b>SPAZIO</b> per iniziare &nbsp; &middot; &nbsp; <b>1</b> = 1P (vs CPU) &nbsp; &middot; &nbsp; <b>2</b> = 2P
+    </div>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width;
+  const H = canvas.height;
+
+  const PADDLE_W = 12;
+  const PADDLE_H = 70;
+  const PADDLE_SPEED = 6;
+  const BALL_SIZE = 12;
+  const BALL_BASE_SPEED = 5;
+  const MAX_SCORE = 11;
+
+  const state = {
+    mode: 1,
+    running: false,
+    gameOver: false,
+    winner: null,
+    p1: { x: 20, y: H / 2 - PADDLE_H / 2, score: 0, up: false, down: false },
+    p2: { x: W - 20 - PADDLE_W, y: H / 2 - PADDLE_H / 2, score: 0, up: false, down: false },
+    ball: { x: W / 2, y: H / 2, vx: 0, vy: 0, speed: BALL_BASE_SPEED },
+  };
+
+  let audioCtx = null;
+  function beep(freq, duration) {
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "square";
+      osc.frequency.value = freq;
+      gain.gain.value = 0.05;
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
+    } catch (e) {}
+  }
+
+  function resetBall(direction) {
+    state.ball.x = W / 2;
+    state.ball.y = H / 2;
+    state.ball.speed = BALL_BASE_SPEED;
+    const angle = (Math.random() * 0.5 - 0.25) * Math.PI;
+    state.ball.vx = Math.cos(angle) * state.ball.speed * direction;
+    state.ball.vy = Math.sin(angle) * state.ball.speed;
+  }
+
+  function newGame() {
+    state.p1.score = 0;
+    state.p2.score = 0;
+    state.p1.y = H / 2 - PADDLE_H / 2;
+    state.p2.y = H / 2 - PADDLE_H / 2;
+    state.gameOver = false;
+    state.winner = null;
+    state.running = true;
+    resetBall(Math.random() < 0.5 ? -1 : 1);
+  }
+
+  function update() {
+    if (!state.running || state.gameOver) return;
+
+    if (state.p1.up) state.p1.y -= PADDLE_SPEED;
+    if (state.p1.down) state.p1.y += PADDLE_SPEED;
+
+    if (state.mode === 2) {
+      if (state.p2.up) state.p2.y -= PADDLE_SPEED;
+      if (state.p2.down) state.p2.y += PADDLE_SPEED;
+    } else {
+      const target = state.ball.y - PADDLE_H / 2;
+      const diff = target - state.p2.y;
+      const cpuSpeed = PADDLE_SPEED * 0.85;
+      if (Math.abs(diff) > cpuSpeed) {
+        state.p2.y += Math.sign(diff) * cpuSpeed;
+      } else {
+        state.p2.y = target;
+      }
+    }
+
+    state.p1.y = Math.max(0, Math.min(H - PADDLE_H, state.p1.y));
+    state.p2.y = Math.max(0, Math.min(H - PADDLE_H, state.p2.y));
+
+    const b = state.ball;
+    b.x += b.vx;
+    b.y += b.vy;
+
+    if (b.y <= 0) {
+      b.y = 0;
+      b.vy *= -1;
+      beep(220, 0.04);
+    } else if (b.y + BALL_SIZE >= H) {
+      b.y = H - BALL_SIZE;
+      b.vy *= -1;
+      beep(220, 0.04);
+    }
+
+    collide(state.p1, +1);
+    collide(state.p2, -1);
+
+    if (b.x + BALL_SIZE < 0) {
+      state.p2.score++;
+      beep(120, 0.25);
+      checkWin();
+      if (!state.gameOver) resetBall(1);
+    } else if (b.x > W) {
+      state.p1.score++;
+      beep(120, 0.25);
+      checkWin();
+      if (!state.gameOver) resetBall(-1);
+    }
+  }
+
+  function collide(p, dir) {
+    const b = state.ball;
+    const withinX = b.x < p.x + PADDLE_W && b.x + BALL_SIZE > p.x;
+    const withinY = b.y < p.y + PADDLE_H && b.y + BALL_SIZE > p.y;
+    if (withinX && withinY) {
+      const hit = (b.y + BALL_SIZE / 2 - (p.y + PADDLE_H / 2)) / (PADDLE_H / 2);
+      const angle = hit * (Math.PI / 4);
+      b.speed = Math.min(b.speed + 0.4, 14);
+      b.vx = Math.cos(angle) * b.speed * dir;
+      b.vy = Math.sin(angle) * b.speed;
+      b.x = dir > 0 ? p.x + PADDLE_W : p.x - BALL_SIZE;
+      beep(440, 0.04);
+    }
+  }
+
+  function checkWin() {
+    if (state.p1.score >= MAX_SCORE) {
+      state.winner = state.mode === 1 ? "GIOCATORE" : "GIOCATORE 1";
+      state.gameOver = true;
+      state.running = false;
+      beep(660, 0.4);
+    } else if (state.p2.score >= MAX_SCORE) {
+      state.winner = state.mode === 1 ? "CPU" : "GIOCATORE 2";
+      state.gameOver = true;
+      state.running = false;
+      beep(660, 0.4);
+    }
+  }
+
+  function draw() {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = "#fff";
+    const dashH = 14;
+    const gap = 10;
+    for (let y = 0; y < H; y += dashH + gap) {
+      ctx.fillRect(W / 2 - 2, y, 4, dashH);
+    }
+
+    ctx.font = "bold 64px 'Courier New', monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(state.p1.score, W / 2 - 80, 30);
+    ctx.fillText(state.p2.score, W / 2 + 80, 30);
+
+    ctx.fillRect(state.p1.x, state.p1.y, PADDLE_W, PADDLE_H);
+    ctx.fillRect(state.p2.x, state.p2.y, PADDLE_W, PADDLE_H);
+
+    if (state.running) {
+      ctx.fillRect(state.ball.x, state.ball.y, BALL_SIZE, BALL_SIZE);
+    }
+
+    if (!state.running) {
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 36px 'Courier New', monospace";
+      ctx.textAlign = "center";
+      if (state.gameOver) {
+        ctx.fillText(state.winner + " VINCE!", W / 2, H / 2 - 50);
+        ctx.font = "20px 'Courier New', monospace";
+        ctx.fillText("Premi SPAZIO per rigiocare", W / 2, H / 2 + 10);
+      } else {
+        ctx.fillText("ATARI TENNIS", W / 2, H / 2 - 70);
+        ctx.font = "18px 'Courier New', monospace";
+        ctx.fillText("Modalita': " + (state.mode === 1 ? "1 GIOCATORE vs CPU" : "2 GIOCATORI"), W / 2, H / 2 - 20);
+        ctx.fillText("Premi 1 o 2 per scegliere la modalita'", W / 2, H / 2 + 15);
+        ctx.fillText("Premi SPAZIO per iniziare", W / 2, H / 2 + 45);
+        ctx.fillText("Primo a " + MAX_SCORE + " punti", W / 2, H / 2 + 75);
+      }
+    }
+  }
+
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "w" || e.key === "W") state.p1.up = true;
+    if (e.key === "s" || e.key === "S") state.p1.down = true;
+    if (e.key === "ArrowUp") { state.p2.up = true; e.preventDefault(); }
+    if (e.key === "ArrowDown") { state.p2.down = true; e.preventDefault(); }
+    if (e.key === "1") { if (!state.running) state.mode = 1; }
+    if (e.key === "2") { if (!state.running) state.mode = 2; }
+    if (e.key === " ") {
+      e.preventDefault();
+      if (!state.running) newGame();
+    }
+  });
+
+  window.addEventListener("keyup", (e) => {
+    if (e.key === "w" || e.key === "W") state.p1.up = false;
+    if (e.key === "s" || e.key === "S") state.p1.down = false;
+    if (e.key === "ArrowUp") state.p2.up = false;
+    if (e.key === "ArrowDown") state.p2.down = false;
+  });
+
+  draw();
+  loop();
+})();
+</script>
+</body>
+</html>
