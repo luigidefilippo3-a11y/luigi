@@ -2,6 +2,9 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <title>Atari Tennis</title>
 <style>
   html, body {
@@ -12,6 +15,10 @@
     color: #fff;
     font-family: "Courier New", monospace;
     overflow: hidden;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
   }
   #wrap {
     display: flex;
@@ -19,29 +26,63 @@
     align-items: center;
     justify-content: center;
     height: 100%;
+    gap: 10px;
+    padding: 8px;
+    box-sizing: border-box;
   }
   canvas {
     background: #000;
     border: 4px solid #fff;
     image-rendering: pixelated;
     box-shadow: 0 0 30px rgba(255,255,255,0.15);
+    max-width: 100%;
+    max-height: 80vh;
+    width: auto;
+    height: auto;
+    display: block;
+    touch-action: none;
   }
   #info {
-    margin-top: 12px;
-    font-size: 14px;
-    letter-spacing: 2px;
+    font-size: 13px;
+    letter-spacing: 1px;
     text-align: center;
     color: #bbb;
+    line-height: 1.5;
   }
   #info b { color: #fff; }
+  #buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  #buttons button {
+    background: #000;
+    color: #fff;
+    border: 2px solid #fff;
+    font-family: inherit;
+    font-size: 16px;
+    padding: 12px 18px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    min-width: 90px;
+    border-radius: 0;
+  }
+  #buttons button:active { background: #fff; color: #000; }
+  #buttons button.active { background: #fff; color: #000; }
 </style>
 </head>
 <body>
   <div id="wrap">
     <canvas id="game" width="800" height="500"></canvas>
+    <div id="buttons">
+      <button id="btnStart">START</button>
+      <button id="btn1p" class="active">1P vs CPU</button>
+      <button id="btn2p">2P</button>
+    </div>
     <div id="info">
-      GIOCATORE 1: <b>W / S</b> &nbsp; &middot; &nbsp; GIOCATORE 2: <b>&uarr; / &darr;</b><br>
-      <b>SPAZIO</b> per iniziare &nbsp; &middot; &nbsp; <b>1</b> = 1P (vs CPU) &nbsp; &middot; &nbsp; <b>2</b> = 2P
+      <b>iPad / Touch:</b> trascina il dito a sinistra (P1) o a destra (P2)<br>
+      <b>Tastiera:</b> W/S (P1) &middot; &uarr;/&darr; (P2) &middot; SPAZIO = start &middot; 1/2 = modalita'
     </div>
   </div>
 
@@ -64,8 +105,8 @@
     running: false,
     gameOver: false,
     winner: null,
-    p1: { x: 20, y: H / 2 - PADDLE_H / 2, score: 0, up: false, down: false },
-    p2: { x: W - 20 - PADDLE_W, y: H / 2 - PADDLE_H / 2, score: 0, up: false, down: false },
+    p1: { x: 20, y: H / 2 - PADDLE_H / 2, score: 0, up: false, down: false, touchY: null },
+    p2: { x: W - 20 - PADDLE_W, y: H / 2 - PADDLE_H / 2, score: 0, up: false, down: false, touchY: null },
     ball: { x: W / 2, y: H / 2, vx: 0, vy: 0, speed: BALL_BASE_SPEED },
   };
 
@@ -99,6 +140,8 @@
     state.p2.score = 0;
     state.p1.y = H / 2 - PADDLE_H / 2;
     state.p2.y = H / 2 - PADDLE_H / 2;
+    state.p1.touchY = null;
+    state.p2.touchY = null;
     state.gameOver = false;
     state.winner = null;
     state.running = true;
@@ -108,12 +151,20 @@
   function update() {
     if (!state.running || state.gameOver) return;
 
-    if (state.p1.up) state.p1.y -= PADDLE_SPEED;
-    if (state.p1.down) state.p1.y += PADDLE_SPEED;
+    if (state.p1.touchY !== null) {
+      state.p1.y = state.p1.touchY - PADDLE_H / 2;
+    } else {
+      if (state.p1.up) state.p1.y -= PADDLE_SPEED;
+      if (state.p1.down) state.p1.y += PADDLE_SPEED;
+    }
 
     if (state.mode === 2) {
-      if (state.p2.up) state.p2.y -= PADDLE_SPEED;
-      if (state.p2.down) state.p2.y += PADDLE_SPEED;
+      if (state.p2.touchY !== null) {
+        state.p2.y = state.p2.touchY - PADDLE_H / 2;
+      } else {
+        if (state.p2.up) state.p2.y -= PADDLE_SPEED;
+        if (state.p2.down) state.p2.y += PADDLE_SPEED;
+      }
     } else {
       const target = state.ball.y - PADDLE_H / 2;
       const diff = target - state.p2.y;
@@ -218,14 +269,13 @@
       if (state.gameOver) {
         ctx.fillText(state.winner + " VINCE!", W / 2, H / 2 - 50);
         ctx.font = "20px 'Courier New', monospace";
-        ctx.fillText("Premi SPAZIO per rigiocare", W / 2, H / 2 + 10);
+        ctx.fillText("Tocca START per rigiocare", W / 2, H / 2 + 10);
       } else {
         ctx.fillText("ATARI TENNIS", W / 2, H / 2 - 70);
         ctx.font = "18px 'Courier New', monospace";
         ctx.fillText("Modalita': " + (state.mode === 1 ? "1 GIOCATORE vs CPU" : "2 GIOCATORI"), W / 2, H / 2 - 20);
-        ctx.fillText("Premi 1 o 2 per scegliere la modalita'", W / 2, H / 2 + 15);
-        ctx.fillText("Premi SPAZIO per iniziare", W / 2, H / 2 + 45);
-        ctx.fillText("Primo a " + MAX_SCORE + " punti", W / 2, H / 2 + 75);
+        ctx.fillText("Tocca START o trascina per iniziare", W / 2, H / 2 + 15);
+        ctx.fillText("Primo a " + MAX_SCORE + " punti", W / 2, H / 2 + 45);
       }
     }
   }
@@ -241,8 +291,8 @@
     if (e.key === "s" || e.key === "S") state.p1.down = true;
     if (e.key === "ArrowUp") { state.p2.up = true; e.preventDefault(); }
     if (e.key === "ArrowDown") { state.p2.down = true; e.preventDefault(); }
-    if (e.key === "1") { if (!state.running) state.mode = 1; }
-    if (e.key === "2") { if (!state.running) state.mode = 2; }
+    if (e.key === "1") { setMode(1); }
+    if (e.key === "2") { setMode(2); }
     if (e.key === " ") {
       e.preventDefault();
       if (!state.running) newGame();
@@ -255,6 +305,75 @@
     if (e.key === "ArrowUp") state.p2.up = false;
     if (e.key === "ArrowDown") state.p2.down = false;
   });
+
+  const activeTouches = new Map();
+
+  function touchToCanvas(t) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    const scaleY = H / rect.height;
+    return {
+      x: (t.clientX - rect.left) * scaleX,
+      y: (t.clientY - rect.top) * scaleY,
+    };
+  }
+
+  function handleTouchStart(e) {
+    e.preventDefault();
+    if (!state.running) {
+      newGame();
+    }
+    for (const t of e.changedTouches) {
+      const p = touchToCanvas(t);
+      const side = p.x < W / 2 ? "p1" : "p2";
+      if (state.mode === 1 && side === "p2") {
+        activeTouches.set(t.identifier, "p1");
+        state.p1.touchY = p.y;
+      } else {
+        activeTouches.set(t.identifier, side);
+        state[side].touchY = p.y;
+      }
+    }
+  }
+
+  function handleTouchMove(e) {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      const side = activeTouches.get(t.identifier);
+      if (!side) continue;
+      const p = touchToCanvas(t);
+      state[side].touchY = p.y;
+    }
+  }
+
+  function handleTouchEnd(e) {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      const side = activeTouches.get(t.identifier);
+      if (!side) continue;
+      activeTouches.delete(t.identifier);
+      const stillActive = Array.from(activeTouches.values()).includes(side);
+      if (!stillActive) state[side].touchY = null;
+    }
+  }
+
+  canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
+  canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
+  canvas.addEventListener("touchend", handleTouchEnd, { passive: false });
+  canvas.addEventListener("touchcancel", handleTouchEnd, { passive: false });
+
+  function setMode(m) {
+    if (state.running) return;
+    state.mode = m;
+    document.getElementById("btn1p").classList.toggle("active", m === 1);
+    document.getElementById("btn2p").classList.toggle("active", m === 2);
+  }
+
+  document.getElementById("btnStart").addEventListener("click", () => {
+    if (!state.running) newGame();
+  });
+  document.getElementById("btn1p").addEventListener("click", () => setMode(1));
+  document.getElementById("btn2p").addEventListener("click", () => setMode(2));
 
   draw();
   loop();
