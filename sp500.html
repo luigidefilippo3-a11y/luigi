@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S&P 500 Portfolio Explorer</title>
+<link rel="preconnect" href="https://stooq.com" crossorigin>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #131a31;
+    --panel-2: #1a2342;
+    --border: #233057;
+    --text: #e8ecf6;
+    --muted: #8893b2;
+    --accent: #6aa9ff;
+    --accent-2: #8b5cf6;
+    --good: #34d399;
+    --bad: #f87171;
+    --bench: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: linear-gradient(180deg, #0b1020, #0a0e1e);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    font-size: 14px; line-height: 1.45;
+  }
+  header {
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 12px;
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: 0.2px; }
+  header .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  header .src { color: var(--muted); font-size: 11px; }
+  header .src a { color: var(--accent); text-decoration: none; }
+  main {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 16px;
+    padding: 16px 24px 32px;
+    max-width: 1400px; margin: 0 auto;
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; padding: 12px; }
+    header { padding: 14px 12px; }
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    min-width: 0;
+  }
+  .panel h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1.2px;
+    color: var(--muted); font-weight: 600; margin: 0 0 10px;
+  }
+
+  /* search + list */
+  .search-box {
+    position: relative; margin-bottom: 10px;
+  }
+  .search-box input {
+    width: 100%; padding: 9px 12px 9px 32px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text);
+    font-size: 13px; outline: none;
+  }
+  .search-box input:focus { border-color: var(--accent); }
+  .search-box::before {
+    content: "🔍"; position: absolute; left: 10px; top: 50%;
+    transform: translateY(-50%); font-size: 12px; opacity: 0.7;
+  }
+  .stock-list {
+    max-height: 320px; overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px; background: var(--panel-2);
+  }
+  .stock-list::-webkit-scrollbar { width: 8px; }
+  .stock-list::-webkit-scrollbar-thumb { background: #2c3a66; border-radius: 4px; }
+  .stock-row {
+    display: grid;
+    grid-template-columns: 22px 1fr auto;
+    align-items: center; gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer; user-select: none;
+    transition: background 0.1s;
+  }
+  .stock-row:last-child { border-bottom: none; }
+  .stock-row:hover { background: rgba(106, 169, 255, 0.06); }
+  .stock-row.checked { background: rgba(106, 169, 255, 0.12); }
+  .stock-row input { accent-color: var(--accent); cursor: pointer; }
+  .stock-row .meta { min-width: 0; }
+  .stock-row .ticker {
+    font-weight: 600; font-size: 13px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .stock-row .name {
+    font-size: 11px; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .stock-row .weight {
+    font-size: 11px; color: var(--accent);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    text-align: right;
+  }
+
+  /* selected chips */
+  .selected-wrap { margin-top: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(106, 169, 255, 0.15);
+    border: 1px solid rgba(106, 169, 255, 0.4);
+    color: var(--text);
+    padding: 3px 8px; border-radius: 14px;
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .chip button {
+    background: none; border: none; color: var(--text);
+    cursor: pointer; padding: 0; font-size: 13px; line-height: 1;
+    opacity: 0.7;
+  }
+  .chip button:hover { opacity: 1; color: var(--bad); }
+  .chip.loading { opacity: 0.6; }
+  .chip.error { border-color: var(--bad); background: rgba(248, 113, 113, 0.15); }
+  .actions { display: flex; gap: 8px; margin-top: 10px; }
+  .actions button {
+    flex: 1; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border);
+    padding: 7px 10px; border-radius: 8px; cursor: pointer;
+    font-size: 12px;
+  }
+  .actions button:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* right side: horizon + chart + kpis */
+  .right { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .horizon {
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .horizon button {
+    background: var(--panel-2); color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 7px 14px; border-radius: 8px; cursor: pointer;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.5px;
+  }
+  .horizon button.active {
+    background: var(--accent); color: #0b1020;
+    border-color: var(--accent);
+  }
+  .horizon button:hover:not(.active) {
+    color: var(--text); border-color: var(--accent);
+  }
+
+  .chart-wrap {
+    position: relative;
+    height: 420px;
+  }
+  @media (max-width: 900px) {
+    .chart-wrap { height: 320px; }
+  }
+  .empty-state {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 8px;
+    color: var(--muted); text-align: center; padding: 20px;
+  }
+  .empty-state .big { font-size: 36px; opacity: 0.5; }
+
+  .kpi-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  @media (max-width: 700px) {
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  .kpi {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  .kpi .label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); font-weight: 600;
+  }
+  .kpi .val {
+    font-size: 18px; font-weight: 600; margin-top: 2px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .kpi .bench {
+    font-size: 11px; color: var(--bench); margin-top: 2px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .pos { color: var(--good); }
+  .neg { color: var(--bad); }
+
+  .legend {
+    display: flex; gap: 18px; flex-wrap: wrap;
+    font-size: 12px; color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .legend .dot {
+    display: inline-block; width: 10px; height: 10px;
+    border-radius: 50%; margin-right: 6px; vertical-align: middle;
+  }
+
+  footer {
+    text-align: center; padding: 18px;
+    color: var(--muted); font-size: 11px;
+    border-top: 1px solid var(--border);
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>S&amp;P 500 Portfolio Explorer</h1>
+    <div class="sub">Costruisci un paniere custom dai titoli dell'S&amp;P 500 e confrontalo con l'indice.</div>
+  </div>
+  <div class="src">
+    Prezzi: <a href="https://stooq.com" target="_blank" rel="noopener">stooq.com</a> · Metadati locali
+  </div>
+</header>
+
+<main>
+  <aside class="panel">
+    <h2>Titoli S&amp;P 500 <span id="count-info" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px"></span></h2>
+    <div class="search-box">
+      <input id="search" type="text" placeholder="Cerca ticker o nome..." autocomplete="off">
+    </div>
+    <div class="stock-list" id="stock-list"></div>
+    <div class="selected-wrap">
+      <h2 style="margin-top:14px">Selezionati <span id="sel-count" style="color:var(--accent);font-weight:600">0</span></h2>
+      <div class="chips" id="chips"><span style="color:var(--muted);font-size:12px">Nessuno. Seleziona dei titoli dalla lista.</span></div>
+      <div class="actions">
+        <button id="btn-clear">Pulisci</button>
+        <button id="btn-top10">Top 10 per cap</button>
+      </div>
+    </div>
+  </aside>
+
+  <section class="right">
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+        <h2 style="margin:0">Orizzonte temporale</h2>
+        <div class="horizon" id="horizon">
+          <button data-h="1M">1M</button>
+          <button data-h="6M">6M</button>
+          <button data-h="YTD">YTD</button>
+          <button data-h="1Y" class="active">1A</button>
+          <button data-h="5Y">5A</button>
+        </div>
+      </div>
+      <div class="legend">
+        <span><span class="dot" style="background:var(--accent)"></span>Tuo portafoglio</span>
+        <span><span class="dot" style="background:var(--bench)"></span>S&amp;P 500</span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chart"></canvas>
+        <div class="empty-state" id="empty">
+          <div class="big">📈</div>
+          <div>Seleziona uno o più titoli per costruire il tuo portafoglio</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi">
+        <div class="label">Rendimento totale</div>
+        <div class="val" id="kpi-ret">—</div>
+        <div class="bench" id="kpi-ret-b">SPX —</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Rend. annualizzato</div>
+        <div class="val" id="kpi-cagr">—</div>
+        <div class="bench" id="kpi-cagr-b">SPX —</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Volatilità (annua)</div>
+        <div class="val" id="kpi-vol">—</div>
+        <div class="bench" id="kpi-vol-b">SPX —</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Max drawdown</div>
+        <div class="val" id="kpi-dd">—</div>
+        <div class="bench" id="kpi-dd-b">SPX —</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Pesi del portafoglio fissati ai market cap correnti (buy-and-hold, no ribilanciamento).
+  Dati prezzi forniti gratuitamente da Stooq via CORS; cache nel browser.
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+<script>
+"use strict";
+
+const STOOQ_BASE = "https://stooq.com/q/d/l/";
+const CACHE_PREFIX = "stooq:v1:";
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const BENCH_TICKER = "^spx";
+
+const state = {
+  stocks: [],
+  byTicker: new Map(),
+  selected: new Set(),
+  horizon: "1Y",
+  filter: "",
+  prices: new Map(),        // ticker -> {dates: [], closes: []}
+  pendingFetches: new Map(),
+  benchSeries: null,
+};
+
+let chart = null;
+
+/* ------------ utilities ------------ */
+function toStooqTicker(t) {
+  if (t === "^spx") return "^spx";
+  return t.replace(".", "-").toLowerCase() + ".us";
+}
+function fmtPct(x, digits = 2) {
+  if (!isFinite(x)) return "—";
+  const s = (x * 100).toFixed(digits);
+  return (x >= 0 ? "+" : "") + s + "%";
+}
+function pctClass(x) { return x >= 0 ? "pos" : "neg"; }
+function parseISO(s) { return new Date(s + "T00:00:00Z"); }
+
+/* ------------ Stooq fetch + cache ------------ */
+function cacheKey(ticker) { return CACHE_PREFIX + ticker; }
+
+function readCache(ticker) {
+  try {
+    const raw = localStorage.getItem(cacheKey(ticker));
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (Date.now() - obj.fetchedAt > CACHE_TTL_MS) return null;
+    return obj.data;
+  } catch (e) { return null; }
+}
+function writeCache(ticker, data) {
+  try {
+    localStorage.setItem(cacheKey(ticker), JSON.stringify({
+      fetchedAt: Date.now(), data,
+    }));
+  } catch (e) {
+    // quota exceeded — clear old entries
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith(CACHE_PREFIX)) localStorage.removeItem(k);
+    }
+  }
+}
+
+function parseStooqCsv(text) {
+  // Date,Open,High,Low,Close,Volume
+  const lines = text.trim().split("\n");
+  if (lines.length < 2) return null;
+  const header = lines[0].toLowerCase();
+  if (!header.startsWith("date") || !header.includes("close")) return null;
+  const dates = [], closes = [];
+  for (let i = 1; i < lines.length; i++) {
+    const parts = lines[i].split(",");
+    if (parts.length < 5) continue;
+    const date = parts[0];
+    const close = parseFloat(parts[4]);
+    if (!date || !isFinite(close)) continue;
+    dates.push(date);
+    closes.push(close);
+  }
+  if (dates.length < 5) return null;
+  return { dates, closes };
+}
+
+async function fetchOnce(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const text = await resp.text();
+  const parsed = parseStooqCsv(text);
+  if (!parsed) throw new Error("Dati non disponibili");
+  return parsed;
+}
+
+async function fetchSeries(ticker) {
+  const cached = readCache(ticker);
+  if (cached) return cached;
+  if (state.pendingFetches.has(ticker)) return state.pendingFetches.get(ticker);
+
+  const d2 = new Date();
+  const d1 = new Date();
+  d1.setFullYear(d1.getFullYear() - 5);
+  d1.setDate(d1.getDate() - 5);
+  const fmt = (d) => d.toISOString().slice(0, 10).replace(/-/g, "");
+
+  const stooqTicker = toStooqTicker(ticker);
+  const directUrl = `${STOOQ_BASE}?s=${encodeURIComponent(stooqTicker)}&d1=${fmt(d1)}&d2=${fmt(d2)}&i=d`;
+
+  const p = (async () => {
+    try {
+      const r = await fetchOnce(directUrl);
+      writeCache(ticker, r);
+      return r;
+    } catch (e) {
+      // CORS or network fail — retry via public proxy (best-effort).
+      const proxied = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
+      const r = await fetchOnce(proxied);
+      writeCache(ticker, r);
+      return r;
+    }
+  })();
+  state.pendingFetches.set(ticker, p);
+  try {
+    return await p;
+  } finally {
+    state.pendingFetches.delete(ticker);
+  }
+}
+
+/* ------------ horizon slicing ------------ */
+function sliceToHorizon(series, horizon) {
+  const { dates, closes } = series;
+  const end = parseISO(dates[dates.length - 1]);
+  let cutoff;
+  if (horizon === "1M") {
+    cutoff = new Date(end); cutoff.setMonth(cutoff.getMonth() - 1);
+  } else if (horizon === "6M") {
+    cutoff = new Date(end); cutoff.setMonth(cutoff.getMonth() - 6);
+  } else if (horizon === "YTD") {
+    cutoff = new Date(Date.UTC(end.getUTCFullYear(), 0, 1));
+  } else if (horizon === "1Y") {
+    cutoff = new Date(end); cutoff.setFullYear(cutoff.getFullYear() - 1);
+  } else { // 5Y
+    cutoff = new Date(end); cutoff.setFullYear(cutoff.getFullYear() - 5);
+  }
+  let startIdx = 0;
+  for (let i = 0; i < dates.length; i++) {
+    if (parseISO(dates[i]) >= cutoff) { startIdx = i; break; }
+  }
+  return {
+    dates: dates.slice(startIdx),
+    closes: closes.slice(startIdx),
+  };
+}
+
+/* ------------ portfolio math ------------ */
+function buildPortfolioSeries(seriesByTicker, weights) {
+  // Align on intersection of dates, normalize each stock to 100 at start, weight, sum.
+  const tickers = Object.keys(seriesByTicker);
+  if (tickers.length === 0) return null;
+
+  // Build date set as intersection
+  let common = new Set(seriesByTicker[tickers[0]].dates);
+  for (let i = 1; i < tickers.length; i++) {
+    const ds = new Set(seriesByTicker[tickers[i]].dates);
+    common = new Set([...common].filter((d) => ds.has(d)));
+  }
+  const dates = [...common].sort();
+  if (dates.length < 2) return null;
+
+  // Index each ticker's prices by date
+  const closeByDate = {};
+  for (const t of tickers) {
+    const { dates: ds, closes } = seriesByTicker[t];
+    const m = {};
+    for (let i = 0; i < ds.length; i++) m[ds[i]] = closes[i];
+    closeByDate[t] = m;
+  }
+  const wSum = tickers.reduce((s, t) => s + weights[t], 0);
+  const normW = {};
+  for (const t of tickers) normW[t] = weights[t] / wSum;
+
+  const startPrices = {};
+  for (const t of tickers) startPrices[t] = closeByDate[t][dates[0]];
+
+  const values = new Array(dates.length);
+  for (let i = 0; i < dates.length; i++) {
+    const d = dates[i];
+    let v = 0;
+    for (const t of tickers) {
+      v += normW[t] * (closeByDate[t][d] / startPrices[t]);
+    }
+    values[i] = v * 100;
+  }
+  return { dates, values };
+}
+
+function computeStats(series) {
+  const v = series.values;
+  if (!v || v.length < 2) return null;
+  const totalRet = v[v.length - 1] / v[0] - 1;
+
+  // Daily log returns
+  const rets = [];
+  for (let i = 1; i < v.length; i++) {
+    if (v[i - 1] > 0) rets.push(Math.log(v[i] / v[i - 1]));
+  }
+  const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const variance = rets.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(rets.length - 1, 1);
+  const dailyVol = Math.sqrt(variance);
+  const annVol = dailyVol * Math.sqrt(252);
+
+  // Period length in years (calendar)
+  const t0 = parseISO(series.dates[0]);
+  const t1 = parseISO(series.dates[series.dates.length - 1]);
+  const years = Math.max((t1 - t0) / (365.25 * 24 * 3600 * 1000), 1 / 252);
+  const cagr = Math.pow(v[v.length - 1] / v[0], 1 / years) - 1;
+
+  // Max drawdown
+  let peak = v[0], maxDD = 0;
+  for (const x of v) {
+    if (x > peak) peak = x;
+    const dd = x / peak - 1;
+    if (dd < maxDD) maxDD = dd;
+  }
+
+  return { totalRet, cagr, annVol, maxDD };
+}
+
+/* ------------ rendering ------------ */
+function renderStockList() {
+  const list = document.getElementById("stock-list");
+  const f = state.filter.toLowerCase();
+  const filtered = state.stocks.filter((s) => {
+    if (!f) return true;
+    return s.ticker.toLowerCase().includes(f) || s.name.toLowerCase().includes(f);
+  });
+  document.getElementById("count-info").textContent = `(${filtered.length}/${state.stocks.length})`;
+
+  // Limit DOM to 200 rendered rows for performance; rest accessible via search
+  const SHOW = 200;
+  const view = filtered.slice(0, SHOW);
+  const html = view.map((s) => {
+    const checked = state.selected.has(s.ticker);
+    return `<div class="stock-row ${checked ? "checked" : ""}" data-t="${s.ticker}">
+      <input type="checkbox" ${checked ? "checked" : ""} tabindex="-1" aria-hidden="true">
+      <div class="meta">
+        <div class="ticker">${s.ticker}</div>
+        <div class="name">${escapeHtml(s.name)}</div>
+      </div>
+      <div class="weight">${(s.weight * 100).toFixed(2)}%</div>
+    </div>`;
+  }).join("");
+  const more = filtered.length > SHOW
+    ? `<div style="padding:8px 10px;color:var(--muted);font-size:11px;text-align:center">… altri ${filtered.length - SHOW}, affina la ricerca</div>`
+    : "";
+  list.innerHTML = html + more;
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function renderChips() {
+  const wrap = document.getElementById("chips");
+  document.getElementById("sel-count").textContent = state.selected.size;
+  if (state.selected.size === 0) {
+    wrap.innerHTML = `<span style="color:var(--muted);font-size:12px">Nessuno. Seleziona dei titoli dalla lista.</span>`;
+    return;
+  }
+  const items = [...state.selected].map((t) => {
+    const meta = state.byTicker.get(t);
+    const hasData = state.prices.has(t);
+    const pending = state.pendingFetches.has(t);
+    const cls = pending ? "loading" : (meta && meta.error ? "error" : "");
+    return `<span class="chip ${cls}" data-t="${t}" title="${meta ? escapeHtml(meta.name) : t}">
+      ${t}${pending ? " ⏳" : ""}${meta && meta.error ? " ⚠" : ""}
+      <button data-remove="${t}" aria-label="Rimuovi">✕</button>
+    </span>`;
+  }).join("");
+  wrap.innerHTML = items;
+}
+
+function renderHorizonButtons() {
+  document.querySelectorAll("#horizon button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.h === state.horizon);
+  });
+}
+
+function clearChart() {
+  if (chart) { chart.destroy(); chart = null; }
+  document.getElementById("empty").style.display = "flex";
+  document.getElementById("kpi-ret").textContent = "—";
+  document.getElementById("kpi-cagr").textContent = "—";
+  document.getElementById("kpi-vol").textContent = "—";
+  document.getElementById("kpi-dd").textContent = "—";
+  document.getElementById("kpi-ret").className = "val";
+  document.getElementById("kpi-cagr").className = "val";
+  document.getElementById("kpi-dd").className = "val";
+  document.getElementById("kpi-ret-b").textContent = "SPX —";
+  document.getElementById("kpi-cagr-b").textContent = "SPX —";
+  document.getElementById("kpi-vol-b").textContent = "SPX —";
+  document.getElementById("kpi-dd-b").textContent = "SPX —";
+}
+
+function renderChart(portfolio, bench) {
+  document.getElementById("empty").style.display = portfolio ? "none" : "flex";
+  if (!portfolio) { if (chart) { chart.destroy(); chart = null; } return; }
+
+  const dates = portfolio.dates;
+  const portValues = portfolio.values;
+
+  // Resample benchmark onto portfolio dates (find nearest <= date)
+  let benchValues = null;
+  if (bench && bench.dates.length > 0) {
+    const bDateToClose = {};
+    for (let i = 0; i < bench.dates.length; i++) bDateToClose[bench.dates[i]] = bench.closes[i];
+    // Find first benchmark price within or at start of portfolio range
+    let bStart = null;
+    for (const d of dates) {
+      if (bDateToClose[d] !== undefined) { bStart = bDateToClose[d]; break; }
+    }
+    if (bStart) {
+      benchValues = dates.map((d) => {
+        const c = bDateToClose[d];
+        return c !== undefined ? (c / bStart) * 100 : null;
+      });
+      // Forward-fill nulls
+      let last = 100;
+      for (let i = 0; i < benchValues.length; i++) {
+        if (benchValues[i] === null) benchValues[i] = last;
+        else last = benchValues[i];
+      }
+    }
+  }
+
+  const ctx = document.getElementById("chart").getContext("2d");
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: dates,
+      datasets: [
+        {
+          label: "Portafoglio",
+          data: portValues,
+          borderColor: getComputedStyle(document.documentElement).getPropertyValue("--accent").trim(),
+          backgroundColor: "rgba(106,169,255,0.12)",
+          fill: true,
+          tension: 0.18,
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+        },
+        ...(benchValues ? [{
+          label: "S&P 500",
+          data: benchValues,
+          borderColor: getComputedStyle(document.documentElement).getPropertyValue("--bench").trim(),
+          backgroundColor: "transparent",
+          fill: false,
+          tension: 0.18,
+          borderWidth: 1.6,
+          borderDash: [4, 3],
+          pointRadius: 0,
+          pointHoverRadius: 4,
+        }] : []),
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: "rgba(11,16,32,0.95)",
+          borderColor: "#233057", borderWidth: 1,
+          titleColor: "#e8ecf6", bodyColor: "#e8ecf6",
+          callbacks: {
+            label: (ctx) => {
+              const v = ctx.parsed.y;
+              const ret = (v / 100 - 1) * 100;
+              return `${ctx.dataset.label}: ${v.toFixed(2)} (${ret >= 0 ? "+" : ""}${ret.toFixed(2)}%)`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: {
+            color: "#8893b2",
+            maxTicksLimit: 8,
+            autoSkip: true,
+          },
+          grid: { color: "rgba(35,48,87,0.4)" },
+        },
+        y: {
+          ticks: { color: "#8893b2", callback: (v) => v.toFixed(0) },
+          grid: { color: "rgba(35,48,87,0.4)" },
+          title: { display: true, text: "Indicizzato a 100", color: "#8893b2" },
+        },
+      },
+    },
+  });
+}
+
+function setKpi(id, value, className) {
+  const el = document.getElementById(id);
+  el.textContent = value;
+  el.className = "val " + (className || "");
+}
+
+function renderKpis(portfolio, bench) {
+  const ps = portfolio ? computeStats(portfolio) : null;
+  const bs = bench ? computeStats({
+    dates: bench.dates,
+    values: bench.closes.map((c) => (c / bench.closes[0]) * 100),
+  }) : null;
+
+  if (ps) {
+    setKpi("kpi-ret", fmtPct(ps.totalRet), pctClass(ps.totalRet));
+    setKpi("kpi-cagr", fmtPct(ps.cagr), pctClass(ps.cagr));
+    setKpi("kpi-vol", fmtPct(ps.annVol));
+    setKpi("kpi-dd", fmtPct(ps.maxDD), pctClass(ps.maxDD));
+  } else {
+    setKpi("kpi-ret", "—");
+    setKpi("kpi-cagr", "—");
+    setKpi("kpi-vol", "—");
+    setKpi("kpi-dd", "—");
+  }
+  document.getElementById("kpi-ret-b").textContent  = "SPX " + (bs ? fmtPct(bs.totalRet) : "—");
+  document.getElementById("kpi-cagr-b").textContent = "SPX " + (bs ? fmtPct(bs.cagr) : "—");
+  document.getElementById("kpi-vol-b").textContent  = "SPX " + (bs ? fmtPct(bs.annVol) : "—");
+  document.getElementById("kpi-dd-b").textContent   = "SPX " + (bs ? fmtPct(bs.maxDD) : "—");
+}
+
+/* ------------ orchestration ------------ */
+async function ensureBenchmark() {
+  if (state.benchSeries) return state.benchSeries;
+  try {
+    state.benchSeries = await fetchSeries(BENCH_TICKER);
+  } catch (e) {
+    console.warn("Benchmark fetch failed:", e);
+    state.benchSeries = null;
+  }
+  return state.benchSeries;
+}
+
+async function refresh() {
+  const tickers = [...state.selected];
+  if (tickers.length === 0) {
+    clearChart();
+    return;
+  }
+
+  // Fetch all selected in parallel (cached ones return immediately)
+  const fetches = tickers.map(async (t) => {
+    try {
+      const meta = state.byTicker.get(t);
+      if (meta) meta.error = false;
+      const s = await fetchSeries(t);
+      state.prices.set(t, s);
+    } catch (e) {
+      const meta = state.byTicker.get(t);
+      if (meta) meta.error = true;
+      console.warn(`Fetch ${t} failed:`, e);
+    }
+  });
+  renderChips();
+  await Promise.all([...fetches, ensureBenchmark()]);
+  renderChips();
+
+  // Build series filtered to horizon
+  const validTickers = tickers.filter((t) => state.prices.has(t));
+  if (validTickers.length === 0) {
+    clearChart();
+    return;
+  }
+  const slicedByTicker = {};
+  const weights = {};
+  for (const t of validTickers) {
+    slicedByTicker[t] = sliceToHorizon(state.prices.get(t), state.horizon);
+    weights[t] = state.byTicker.get(t).marketCap || 0;
+  }
+  // If all weights are 0 (edge case), fall back to equal weight
+  if (Object.values(weights).every((w) => !w)) {
+    for (const t of validTickers) weights[t] = 1;
+  }
+  const portfolio = buildPortfolioSeries(slicedByTicker, weights);
+  const benchSliced = state.benchSeries ? sliceToHorizon(state.benchSeries, state.horizon) : null;
+  renderChart(portfolio, benchSliced);
+  renderKpis(portfolio, benchSliced);
+}
+
+/* ------------ event wiring ------------ */
+function init(stocks) {
+  state.stocks = stocks;
+  state.byTicker = new Map(stocks.map((s) => [s.ticker, s]));
+
+  renderStockList();
+  renderChips();
+  renderHorizonButtons();
+
+  document.getElementById("search").addEventListener("input", (e) => {
+    state.filter = e.target.value;
+    renderStockList();
+  });
+
+  document.getElementById("stock-list").addEventListener("click", (e) => {
+    const row = e.target.closest(".stock-row");
+    if (!row) return;
+    const t = row.dataset.t;
+    if (state.selected.has(t)) state.selected.delete(t);
+    else state.selected.add(t);
+    renderStockList();
+    renderChips();
+    refresh();
+  });
+
+  document.getElementById("chips").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-remove]");
+    if (!btn) return;
+    state.selected.delete(btn.dataset.remove);
+    renderStockList();
+    renderChips();
+    refresh();
+  });
+
+  document.getElementById("btn-clear").addEventListener("click", () => {
+    state.selected.clear();
+    renderStockList();
+    renderChips();
+    refresh();
+  });
+
+  document.getElementById("btn-top10").addEventListener("click", () => {
+    state.selected = new Set(state.stocks.slice(0, 10).map((s) => s.ticker));
+    renderStockList();
+    renderChips();
+    refresh();
+  });
+
+  document.getElementById("horizon").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-h]");
+    if (!btn) return;
+    state.horizon = btn.dataset.h;
+    renderHorizonButtons();
+    refresh();
+  });
+
+  // Preload benchmark in background
+  ensureBenchmark();
+}
+
+(async () => {
+  try {
+    const resp = await fetch("data/sp500.json");
+    const stocks = await resp.json();
+    init(stocks);
+  } catch (e) {
+    document.body.innerHTML = `<div style="padding:40px;color:#f87171;font-family:system-ui">
+      Errore nel caricamento di data/sp500.json: ${e.message}
+    </div>`;
+  }
+})();
+</script>
+</body>
+</html>
